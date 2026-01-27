@@ -1,7 +1,18 @@
+# Virtual environments
 adas_env/
-dataset/
+adas_xai_env/
+
+# Python cache
 __pycache__/
+*.pyc
+
+# Dataset
+dataset/
+
+# Model files (optional – large)
 *.h5
 *.keras
-*.pyc
-.env
+
+# OS files
+.DS_Store
+Thumbs.db
