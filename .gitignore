@@ -2,14 +2,15 @@
 adas_env/
 adas_xai_env/
 
-# python cache
-__pycache__/
-*.pyc
-
-# datasets (too large)
+# datasets (DO NOT UPLOAD)
 dataset/
 dataset_binary/
 dataset_multiclass/
 
-# OS files
-.DS_Store
+# trained models (DO NOT UPLOAD)
+*.keras
+*.h5
+
+# python cache
+__pycache__/
+*.pyc
