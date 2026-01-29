@@ -1,16 +1,29 @@
-# virtual environments
-adas_env/
-adas_xai_env/
-
-# datasets (DO NOT UPLOAD)
-dataset/
-dataset_binary/
-dataset_multiclass/
-
-# trained models (DO NOT UPLOAD)
-*.keras
-*.h5
-
-# python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+env/
+venv/
+adas_xai_env/
+adas_clean_env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Model Files (optional if too big)
+*.h5
+*.keras
+
+# Dataset (optional if large)
+dataset/
