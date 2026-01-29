@@ -27,3 +27,5 @@ Thumbs.db
 
 # Dataset (optional if large)
 dataset/
+dataset_multiclass/
+test/
