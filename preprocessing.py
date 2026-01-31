@@ -1,35 +1,44 @@
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-# Image parameters (CPU friendly)
 IMG_SIZE = (224, 224)
-BATCH_SIZE = 16
+BATCH = 32
 
-# Data augmentation (light – safe for CPU)
+# Training generator with augmentation + split
 train_datagen = ImageDataGenerator(
     rescale=1./255,
-    validation_split=0.2,
-    rotation_range=10,
-    zoom_range=0.1,
-    horizontal_flip=True
+    rotation_range=20,
+    zoom_range=0.2,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    brightness_range=[0.5, 1.5],
+    horizontal_flip=True,
+    fill_mode='nearest',
+    validation_split=0.2   # <-- IMPORTANT
+)
+
+# Validation generator (NO augmentation)
+val_datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2
 )
 
 # Training data
-train_data = train_datagen.flow_from_directory(
+train_generator = train_datagen.flow_from_directory(
     "dataset/",
     target_size=IMG_SIZE,
-    batch_size=BATCH_SIZE,
+    batch_size=BATCH,
     class_mode="binary",
     subset="training"
 )
 
 # Validation data
-val_data = train_datagen.flow_from_directory(
+val_generator = val_datagen.flow_from_directory(
     "dataset/",
     target_size=IMG_SIZE,
-    batch_size=BATCH_SIZE,
+    batch_size=BATCH,
     class_mode="binary",
     subset="validation"
 )
 
-print("Class indices:", train_data.class_indices)
+print("Class indices:", train_generator.class_indices)

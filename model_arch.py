@@ -1,19 +1,22 @@
 import tensorflow as tf
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
-from tensorflow.keras.models import Model
+from tensorflow.keras import layers, models
 
-def build_model():
-    base = MobileNetV2(
-        weights=None,
+def build_model(num_classes):
+    base = tf.keras.applications.EfficientNetB0(
         include_top=False,
-        input_shape=(224, 224, 3)
+        weights='imagenet',
+        input_shape=(224,224,3)
     )
 
-    x = base.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(128, activation="relu")(x)
-    output = Dense(1, activation="sigmoid")(x)
+    base.trainable = False
 
-    model = Model(inputs=base.input, outputs=output)
+    model = models.Sequential([
+        base,
+        layers.GlobalAveragePooling2D(),
+        layers.Dropout(0.4),
+        layers.Dense(256, activation='relu'),
+        layers.Dropout(0.3),
+        layers.Dense(num_classes, activation='softmax')
+    ])
+
     return model

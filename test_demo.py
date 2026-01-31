@@ -8,7 +8,7 @@ from tensorflow.keras.models import load_model
 # ---------------- LOAD MODEL ----------------
 model = load_model("driver_model.keras")
 
-TEST_DIR = "dataset/test"
+TEST_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\test"
 IMG_SIZE = 224
 
 

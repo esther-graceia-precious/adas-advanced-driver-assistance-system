@@ -10,7 +10,7 @@ BATCH_SIZE = 32
 EPOCHS = 10
 NUM_CLASSES = 9
 
-TRAIN_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\dataset_mulitclass\train"
+TRAIN_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multiclass_dataset"
 
 # ---------------- DATA GENERATOR ----------------
 datagen = ImageDataGenerator(
