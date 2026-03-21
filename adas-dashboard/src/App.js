@@ -45,6 +45,40 @@ const riskStyle = (level) => {
 };
 
 // ================================
+// MULTISTREAM TAGS COMPONENT
+// ================================
+function MultiStreamTags({ ms }) {
+  if (!ms) return null;
+  const faceFound = ms.head && ms.head !== 'N/A';
+  return (
+    <div style={{ marginTop: '0.75rem', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+      {faceFound ? (
+        <>
+          <span style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '3px 10px', fontSize: '0.72rem', color: '#1d4ed8' }}>
+            👤 {ms.head}
+          </span>
+          <span style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '3px 10px', fontSize: '0.72rem', color: '#166534' }}>
+            👁️ {ms.eye}
+          </span>
+          <span style={{ background: '#fdf4ff', border: '1px solid #e9d5ff', borderRadius: '6px', padding: '3px 10px', fontSize: '0.72rem', color: '#7e22ce' }}>
+            👄 {ms.mouth}
+          </span>
+        </>
+      ) : (
+        <span style={{ background: '#fff9f5', border: '1px solid #ff6600', borderRadius: '6px', padding: '3px 10px', fontSize: '0.72rem', color: '#ff6600' }}>
+          👤 Face not detected in this frame
+        </span>
+      )}
+      {ms.reasons && ms.reasons.length > 0 && ms.reasons.map((r, i) => (
+        <span key={i} style={{ background: '#fff5f5', border: '1px solid #feb2b2', borderRadius: '6px', padding: '3px 10px', fontSize: '0.72rem', color: '#c53030', fontWeight: 600 }}>
+          ⚠️ {r}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ================================
 // IMAGE MODE
 // ================================
 function ImageMode() {
@@ -55,9 +89,7 @@ function ImageMode() {
   const [preview, setPreview] = useState(null);
 
   const handleFile = (f) => {
-    setFile(f);
-    setResult(null);
-    setError(null);
+    setFile(f); setResult(null); setError(null);
     setPreview(URL.createObjectURL(f));
   };
 
@@ -82,7 +114,6 @@ function ImageMode() {
 
   return (
     <div>
-      {/* Upload */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e8e8e8', padding: '1.5rem', marginBottom: '1.25rem' }}>
         <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Upload Image
@@ -104,7 +135,6 @@ function ImageMode() {
             </>
           )}
         </label>
-
         <button onClick={analyze} disabled={!file || loading} style={{
           width: '100%', padding: '12px',
           background: !file || loading ? '#f0f0f0' : '#ff6600',
@@ -118,10 +148,8 @@ function ImageMode() {
         {error && <p style={{ color: '#e53e3e', fontSize: '0.82rem', marginTop: '10px' }}>{error}</p>}
       </div>
 
-      {/* Image Result */}
       {result && (
         <div className="slide-in">
-          {/* Status */}
           <div style={{
             background: bad ? '#fff5f5' : '#f0fff4',
             border: `1px solid ${bad ? '#feb2b2' : '#9ae6b4'}`,
@@ -131,17 +159,15 @@ function ImageMode() {
             animation: bad ? 'blink 0.8s ease infinite' : 'none'
           }}>
             <span style={{ fontSize: '1.4rem' }}>{bad ? '⚠️' : '✅'}</span>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: '1rem', color: bad ? '#c53030' : '#276749' }}>
                 {bad ? 'Driver is Distracted' : 'Driver is Attentive'}
               </div>
-              <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                Confidence: {result.confidence}%
-              </div>
+              <div style={{ fontSize: '0.8rem', color: '#666' }}>Confidence: {result.confidence}%</div>
+              {result.multistream && <MultiStreamTags ms={result.multistream} />}
             </div>
           </div>
 
-          {/* Stat cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
             <div style={{ background: bad ? '#fff5f5' : '#f0fff4', border: `1px solid ${bad ? '#feb2b2' : '#9ae6b4'}`, borderRadius: '10px', padding: '1.1rem 1.25rem' }}>
               <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '6px', fontWeight: 500 }}>Result</div>
@@ -153,13 +179,10 @@ function ImageMode() {
             </div>
           </div>
 
-          {/* Grad-CAM */}
           {result.gradcam && (
             <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '12px', padding: '1.4rem' }}>
               <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#444', marginBottom: '4px' }}>Explainability — Grad-CAM</p>
-              <p style={{ fontSize: '0.78rem', color: '#aaa', marginBottom: '1.1rem' }}>
-                {result.confidence}% confidence. Red areas show model focus.
-              </p>
+              <p style={{ fontSize: '0.78rem', color: '#aaa', marginBottom: '1.1rem' }}>{result.confidence}% confidence. Red areas show model focus.</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
                   <p style={{ fontSize: '0.75rem', color: '#888', marginBottom: '6px' }}>Original Image</p>
@@ -225,9 +248,15 @@ function VideoMode() {
   const risk = result?.summary?.risk_level;
   const rs = risk ? riskStyle(risk) : { color: '#888', bg: '#fafafa', border: '#e8e8e8' };
 
+  const currentMs = result?.multistream ? {
+    head:    result.multistream.head?.[currentFrame]    || 'N/A',
+    eye:     result.multistream.eye?.[currentFrame]     || 'N/A',
+    mouth:   result.multistream.mouth?.[currentFrame]   || 'N/A',
+    reasons: result.multistream.reasons?.[currentFrame] || []
+  } : null;
+
   return (
     <div>
-      {/* Upload */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e8e8e8', padding: '1.5rem', marginBottom: '1.25rem' }}>
         <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Upload Video
@@ -279,10 +308,8 @@ function VideoMode() {
         {error && <p style={{ color: '#e53e3e', fontSize: '0.82rem', marginTop: '10px' }}>{error}</p>}
       </div>
 
-      {/* Video Results */}
       {result && (
         <div className="slide-in">
-
           {/* Status banner */}
           <div style={{
             background: bad ? '#fff5f5' : '#f0fff4',
@@ -303,7 +330,7 @@ function VideoMode() {
             </div>
           </div>
 
-          {/* Processed Video Frames Player */}
+          {/* Frame Player */}
           {result.processed_frames && result.processed_frames.length > 0 && (
             <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: '12px', padding: '1.4rem', marginBottom: '1.25rem' }}>
               <p style={{ fontWeight: 600, fontSize: '0.85rem', color: '#444', marginBottom: '4px' }}>Video Analysis Frames</p>
@@ -315,16 +342,17 @@ function VideoMode() {
                 alt={`Frame ${currentFrame}`}
                 style={{ width: '100%', borderRadius: '8px', border: '1px solid #e8e8e8', marginBottom: '0.75rem' }}
               />
-              {/* Frame scrubber */}
+
+              {/* Multistream tags */}
+              {currentMs && <MultiStreamTags ms={currentMs} />}
+
               <input
-                type="range"
-                min={0}
-                max={result.processed_frames.length - 1}
+                type="range" min={0} max={result.processed_frames.length - 1}
                 value={currentFrame}
                 onChange={e => setCurrentFrame(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#ff6600' }}
+                style={{ width: '100%', accentColor: '#ff6600', marginTop: '0.75rem' }}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button onClick={() => setCurrentFrame(Math.max(0, currentFrame - 1))}
                   style={{ flex: 1, padding: '6px', background: '#f5f5f5', border: '1px solid #e8e8e8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>
                   ← Prev
@@ -340,10 +368,10 @@ function VideoMode() {
           {/* Stat cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
             {[
-              { label: 'Attentive', value: `${result.summary.attentive_pct}%`, color: '#38a169', bg: '#f0fff4', border: '#9ae6b4' },
+              { label: 'Attentive',  value: `${result.summary.attentive_pct}%`,  color: '#38a169', bg: '#f0fff4', border: '#9ae6b4' },
               { label: 'Distracted', value: `${result.summary.distracted_pct}%`, color: bad ? '#c53030' : '#555', bg: bad ? '#fff5f5' : '#fafafa', border: bad ? '#feb2b2' : '#e8e8e8' },
-              { label: 'Alerts', value: result.summary.alert_count, color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
-              { label: 'Risk Level', value: risk, color: rs.color, bg: rs.bg, border: rs.border },
+              { label: 'Alerts',     value: result.summary.alert_count,           color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+              { label: 'Risk Level', value: risk,                                  color: rs.color,  bg: rs.bg,    border: rs.border },
             ].map(({ label, value, color, bg, border }) => (
               <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: '10px', padding: '1.1rem 1.25rem' }}>
                 <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '6px', fontWeight: 500 }}>{label}</div>
@@ -415,7 +443,7 @@ function VideoMode() {
 }
 
 // ================================
-// LIVE MODE (placeholder)
+// LIVE MODE
 // ================================
 function LiveMode() {
   return (
@@ -440,9 +468,9 @@ export default function App() {
   const [mode, setMode] = useState('video');
 
   const tabs = [
-    { key: 'image', label: '🖼️ Image', },
-    { key: 'video', label: '🎬 Video', },
-    { key: 'live',  label: '📷 Live',  },
+    { key: 'image', label: '🖼️ Image' },
+    { key: 'video', label: '🎬 Video' },
+    { key: 'live',  label: '📷 Live'  },
   ];
 
   return (
@@ -456,7 +484,7 @@ export default function App() {
           <span style={{ fontWeight: 600, fontSize: '1rem', color: '#222' }}>ADAS Driver Monitor</span>
         </div>
         <div style={{ display: 'flex', gap: '16px' }}>
-          {[['Binary', '97%'], ['Multiclass', '94%'], ['Video', '82%']].map(([k, v]) => (
+          {[['Binary', '97%'], ['Multiclass', '94%'], ['Video', '95%']].map(([k, v]) => (
             <div key={k} style={{ fontSize: '0.75rem', color: '#888', textAlign: 'center' }}>
               <span style={{ display: 'block', fontWeight: 600, color: '#ff6600' }}>{v}</span>
               {k}
@@ -466,8 +494,6 @@ export default function App() {
       </div>
 
       <div style={{ maxWidth: '860px', margin: '0 auto', padding: '2rem 1.5rem' }}>
-
-        {/* Title */}
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: '#111', marginBottom: '6px' }}>
             Driver Distraction Detection
@@ -480,33 +506,27 @@ export default function App() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem', background: '#fff', padding: '6px', borderRadius: '10px', border: '1px solid #e8e8e8', width: 'fit-content' }}>
           {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setMode(tab.key)}
-              style={{
-                padding: '8px 20px',
-                background: mode === tab.key ? '#ff6600' : 'transparent',
-                color: mode === tab.key ? '#fff' : '#666',
-                border: 'none', borderRadius: '8px',
-                fontWeight: mode === tab.key ? 600 : 400,
-                fontSize: '0.88rem', cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
+            <button key={tab.key} onClick={() => setMode(tab.key)} style={{
+              padding: '8px 20px',
+              background: mode === tab.key ? '#ff6600' : 'transparent',
+              color: mode === tab.key ? '#fff' : '#666',
+              border: 'none', borderRadius: '8px',
+              fontWeight: mode === tab.key ? 600 : 400,
+              fontSize: '0.88rem', cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}>
               {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Tab Content */}
         {mode === 'image' && <ImageMode />}
         {mode === 'video' && <VideoMode />}
         {mode === 'live'  && <LiveMode />}
 
-        {/* Footer */}
         <div style={{ marginTop: '2.5rem', paddingTop: '1.25rem', borderTop: '1px solid #e8e8e8', display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#bbb' }}>
           <span>ADAS Driver Distraction Detection</span>
-          <span>MobileNetV2 · TensorFlow 2.13</span>
+          <span>MobileNetV2 · TensorFlow 2.13 · NST Augmentation</span>
         </div>
       </div>
     </div>

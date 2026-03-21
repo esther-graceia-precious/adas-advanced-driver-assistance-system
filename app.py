@@ -5,6 +5,7 @@ import tensorflow as tf
 import cv2
 import numpy as np
 import os
+import sys
 import tempfile
 import base64
 
@@ -12,7 +13,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ================================
-# LOAD MODEL
+# LOAD MAIN VIDEO MODEL
 # ================================
 def focal_loss(gamma=2., alpha=.25):
     def loss(y_true, y_pred):
@@ -20,14 +21,13 @@ def focal_loss(gamma=2., alpha=.25):
         p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)
         return alpha * tf.pow((1 - p_t), gamma) * ce
     return loss
-
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "video_model_86_best.h5")
+MODEL_PATH = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\video_model_nst_v2_best.h5"
 model = tf.keras.models.load_model(
     MODEL_PATH,
     custom_objects={'loss': focal_loss()},
     compile=False
 )
-print("✅ Model loaded!")
+print("✅ Main model loaded!")
 
 def get_last_conv_layer(model):
     for layer in reversed(model.layers):
@@ -39,7 +39,42 @@ last_conv_layer = get_last_conv_layer(model)
 print(f"✅ Last conv layer: {last_conv_layer}")
 
 # ================================
-# GRAD-CAM
+# LOAD MULTISTREAM MODELS
+# ================================
+HEAD_CLASSES  = ['Diagonal Down Left', 'Diagonal Down Right', 'Diagonal Up Left',
+                 'Diagonal Up Right', 'Down', 'Frontal', 'Left', 'Right', 'Up']
+EYE_CLASSES   = ['Closed', 'Down', 'Front', 'Left', 'Right', 'Up']
+MOUTH_CLASSES = ['Closed', 'Slight Open', 'Wide Open']
+
+DISTRACTED_HEAD  = ['Left', 'Right', 'Down', 'Diagonal Down Left',
+                    'Diagonal Down Right', 'Diagonal Up Left', 'Diagonal Up Right']
+DISTRACTED_EYE   = ['Closed', 'Down', 'Left', 'Right', 'Up']
+
+face_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+)
+
+try:
+    head_model = tf.keras.models.load_model(
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\head_model_best.h5",
+        compile=False
+    )
+    eye_model = tf.keras.models.load_model(
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\eye_model_best.h5",
+        compile=False
+    )
+    mouth_model = tf.keras.models.load_model(
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\mouth_model_best.h5",
+        compile=False
+    )
+    multistream_loaded = True
+    print("✅ Multistream models loaded!")
+except Exception as e:
+    multistream_loaded = False
+    print(f"⚠️ Multistream models not loaded: {e}")
+
+# ================================
+# HELPER FUNCTIONS
 # ================================
 def generate_gradcam(img_array, model, last_conv_layer_name):
     grad_model = tf.keras.models.Model(
@@ -80,6 +115,88 @@ def get_risk_level(distracted_pct):
     else:
         return "HIGH"
 
+def get_face_crop(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Equalize histogram for better detection in different lighting
+    gray = cv2.equalizeHist(gray)
+    
+    for scale in [1.05, 1.1, 1.2, 1.3]:
+        for neighbors in [3, 2, 1]:
+            faces = face_cascade.detectMultiScale(
+                gray, scale, neighbors,
+                minSize=(30, 30),
+                flags=cv2.CASCADE_SCALE_IMAGE
+            )
+            if len(faces) > 0:
+                # Get largest face
+                faces = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)
+                x, y, w, h = faces[0]
+                pad = 25
+                x = max(0, x - pad)
+                y = max(0, y - pad)
+                w = min(frame.shape[1] - x, w + 2*pad)
+                h = min(frame.shape[0] - y, h + 2*pad)
+                return frame[y:y+h, x:x+w], (x, y, w, h)
+    return None, None
+
+def get_multistream_info(frame, is_distracted):
+    """Get head/eye/mouth predictions and reasons"""
+    if not multistream_loaded:
+        return {
+            'face_detected': False,
+            'head': 'N/A', 'eye': 'N/A', 'mouth': 'N/A',
+            'reasons': []
+        }
+
+    face_crop, face_coords = get_face_crop(frame)
+    face_found = face_crop is not None
+
+    if face_found:
+        face_img   = preprocess(face_crop)
+        head_pred  = head_model.predict(face_img,  verbose=0)[0]
+        eye_pred   = eye_model.predict(face_img,   verbose=0)[0]
+        mouth_pred = mouth_model.predict(face_img, verbose=0)[0]
+
+        head_class  = HEAD_CLASSES[np.argmax(head_pred)]
+        eye_class   = EYE_CLASSES[np.argmax(eye_pred)]
+        mouth_class = MOUTH_CLASSES[np.argmax(mouth_pred)]
+        head_conf   = round(float(np.max(head_pred)) * 100, 1)
+        eye_conf    = round(float(np.max(eye_pred))  * 100, 1)
+        mouth_conf  = round(float(np.max(mouth_pred))* 100, 1)
+    else:
+        head_class = eye_class = mouth_class = 'N/A'
+        head_conf  = eye_conf  = mouth_conf  = 0.0
+
+    # Reasons
+    reasons = []
+    if is_distracted and face_found:
+        if head_class in ['Left', 'Right', 'Diagonal Up Left', 'Diagonal Up Right'] \
+           and eye_class in ['Up', 'Left', 'Right']:
+            reasons.append("Phone/Object use suspected")
+        else:
+            if head_class in DISTRACTED_HEAD:
+                reasons.append(f"Head {head_class}")
+            if eye_class == 'Closed':
+                reasons.append("Eyes Closed (Fatigue)")
+            elif eye_class in DISTRACTED_EYE:
+                reasons.append(f"Gaze {eye_class}")
+            if mouth_class == 'Wide Open':
+                if head_class in ['Down', 'Diagonal Down Left', 'Diagonal Down Right']:
+                    reasons.append("Drinking/Eating suspected")
+                else:
+                    reasons.append("Yawning (Fatigue)")
+
+    if is_distracted and not reasons:
+        reasons.append("Distraction detected")
+
+    return {
+        'face_detected': face_found,
+        'head':  f"{head_class} ({head_conf}%)" if face_found else 'N/A',
+        'eye':   f"{eye_class} ({eye_conf}%)"  if face_found else 'N/A',
+        'mouth': f"{mouth_class} ({mouth_conf}%)" if face_found else 'N/A',
+        'reasons': reasons
+    }
+
 # ================================
 # IMAGE ANALYSIS
 # ================================
@@ -89,35 +206,39 @@ def analyze_image():
         return jsonify({'error': 'No image uploaded'}), 400
 
     image_file = request.files['image']
-    img_array = np.frombuffer(image_file.read(), np.uint8)
-    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    img_array  = np.frombuffer(image_file.read(), np.uint8)
+    frame      = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
     if frame is None:
         return jsonify({'error': 'Cannot read image'}), 400
 
     img_input = preprocess(frame)
-    prob = float(model.predict(img_input, verbose=0)[0][0])
-    label = "Distracted" if prob > 0.5 else "Attentive"
-    risk = get_risk_level(prob * 100)
+    prob      = float(model.predict(img_input, verbose=0)[0][0])
+    label     = "Distracted" if prob > 0.5 else "Attentive"
+    risk      = get_risk_level(prob * 100)
+
+    # Multistream info
+    ms_info = get_multistream_info(frame, prob > 0.5)
 
     # Grad-CAM
     gradcam_data = None
     try:
-        heatmap = generate_gradcam(img_input, model, last_conv_layer)
-        overlay = apply_gradcam_overlay(frame, heatmap)
+        heatmap  = generate_gradcam(img_input, model, last_conv_layer)
+        overlay  = apply_gradcam_overlay(frame, heatmap)
         gradcam_data = {
-            'original': frame_to_base64(frame),
-            'gradcam': frame_to_base64(overlay),
+            'original':   frame_to_base64(frame),
+            'gradcam':    frame_to_base64(overlay),
             'confidence': round(prob * 100, 1)
         }
     except Exception as e:
         print(f"Grad-CAM error: {e}")
 
     return jsonify({
-        'label': label,
-        'confidence': round(prob * 100, 1),
-        'risk_level': risk,
-        'gradcam': gradcam_data
+        'label':       label,
+        'confidence':  round(prob * 100, 1),
+        'risk_level':  risk,
+        'multistream': ms_info,
+        'gradcam':     gradcam_data
     })
 
 # ================================
@@ -129,7 +250,7 @@ def analyze_video():
         return jsonify({'error': 'No video uploaded'}), 400
 
     video_file = request.files['video']
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+    tmp        = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
     video_file.save(tmp.name)
     tmp.close()
 
@@ -138,42 +259,65 @@ def analyze_video():
         return jsonify({'error': 'Cannot open video'}), 400
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    duration = total_frames / fps if fps > 0 else 0
+    fps          = cap.get(cv2.CAP_PROP_FPS)
+    duration     = total_frames / fps if fps > 0 else 0
 
-    confidences = []
-    labels = []
-    timestamps = []
-    frame_count = 0
-    sample_every = max(1, int(fps / 2))
-
-    max_prob = 0
-    most_distracted_frame = None
-
-    # For processed video frames
+    confidences      = []
+    labels           = []
+    timestamps       = []
+    frame_reasons    = []
+    frame_head       = []
+    frame_eye        = []
+    frame_mouth      = []
     processed_frames = []
+    frame_count      = 0
+    sample_every     = max(1, int(fps / 2))
+    max_prob         = 0
+    most_distracted_frame = None
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+
         if frame_count % sample_every == 0:
-            img_input = preprocess(frame)
-            prob = float(model.predict(img_input, verbose=0)[0][0])
-            label = "Distracted" if prob > 0.5 else "Attentive"
+            img_input    = preprocess(frame)
+            prob         = float(model.predict(img_input, verbose=0)[0][0])
+            is_distracted = prob > 0.5
+            label        = "Distracted" if is_distracted else "Attentive"
+
             confidences.append(round(prob, 4))
             labels.append(label)
             timestamps.append(round(frame_count / fps, 2) if fps > 0 else frame_count)
 
+            # Multistream info
+            ms = get_multistream_info(frame, is_distracted)
+            frame_reasons.append(ms['reasons'])
+            frame_head.append(ms['head'])
+            frame_eye.append(ms['eye'])
+            frame_mouth.append(ms['mouth'])
+
             # Draw overlay on frame
-            color = (0, 0, 255) if prob > 0.5 else (0, 255, 0)
+            color = (0, 0, 255) if is_distracted else (0, 255, 0)
             display_frame = frame.copy()
-            cv2.rectangle(display_frame, (10, 10), (400, 60), (0, 0, 0), -1)
+            cv2.rectangle(display_frame, (10, 10), (550, 150), (0, 0, 0), -1)
             cv2.putText(display_frame, f"{label} ({prob*100:.1f}%)",
                        (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-            # Save frame as base64
-            if len(processed_frames) < 50:  # limit frames sent to frontend
+            if ms['face_detected']:
+                cv2.putText(display_frame, f"Head: {ms['head']}",
+                           (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+                cv2.putText(display_frame, f"Eye:  {ms['eye']}",
+                           (20, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+                cv2.putText(display_frame, f"Mouth:{ms['mouth']}",
+                           (20, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+
+            if ms['reasons']:
+                cv2.putText(display_frame,
+                           f"Reason: {', '.join(ms['reasons'])}",
+                           (20, 138), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,165,255), 1)
+
+            if len(processed_frames) < 50:
                 processed_frames.append(frame_to_base64(display_frame))
 
             if prob > max_prob:
@@ -186,30 +330,30 @@ def analyze_video():
     os.unlink(tmp.name)
 
     # Summary
-    total = len(labels)
+    total            = len(labels)
     distracted_count = labels.count("Distracted")
-    attentive_count = labels.count("Attentive")
-    distracted_pct = round((distracted_count / total) * 100, 1) if total > 0 else 0
-    attentive_pct = round((attentive_count / total) * 100, 1) if total > 0 else 0
-    risk_level = get_risk_level(distracted_pct)
+    attentive_count  = labels.count("Attentive")
+    distracted_pct   = round((distracted_count / total) * 100, 1) if total > 0 else 0
+    attentive_pct    = round((attentive_count  / total) * 100, 1) if total > 0 else 0
+    risk_level       = get_risk_level(distracted_pct)
 
     # Alerts
-    alerts = []
-    in_alert = False
-    alert_start = 0
+    alerts       = []
+    in_alert     = False
+    alert_start  = 0
     ALERT_THRESHOLD = 5
-    consecutive = 0
+    consecutive  = 0
 
     for i, label in enumerate(labels):
         if label == "Distracted":
             consecutive += 1
             if consecutive >= ALERT_THRESHOLD and not in_alert:
-                in_alert = True
+                in_alert    = True
                 alert_start = timestamps[i - ALERT_THRESHOLD + 1]
         else:
             if in_alert:
                 alerts.append({'start': alert_start, 'end': timestamps[i - 1]})
-            in_alert = False
+            in_alert    = False
             consecutive = 0
 
     if in_alert:
@@ -219,12 +363,12 @@ def analyze_video():
     gradcam_data = None
     if most_distracted_frame is not None:
         try:
-            img_input = preprocess(most_distracted_frame)
-            heatmap = generate_gradcam(img_input, model, last_conv_layer)
+            img_input      = preprocess(most_distracted_frame)
+            heatmap        = generate_gradcam(img_input, model, last_conv_layer)
             gradcam_overlay = apply_gradcam_overlay(most_distracted_frame, heatmap)
-            gradcam_data = {
-                'original': frame_to_base64(most_distracted_frame),
-                'gradcam': frame_to_base64(gradcam_overlay),
+            gradcam_data   = {
+                'original':   frame_to_base64(most_distracted_frame),
+                'gradcam':    frame_to_base64(gradcam_overlay),
                 'confidence': round(max_prob * 100, 1)
             }
         except Exception as e:
@@ -233,21 +377,27 @@ def analyze_video():
     return jsonify({
         'summary': {
             'total_frames_analyzed': total,
-            'duration_seconds': round(duration, 2),
-            'attentive_pct': attentive_pct,
-            'distracted_pct': distracted_pct,
-            'alert_count': len(alerts),
-            'overall_status': 'DISTRACTED' if distracted_pct > 50 else 'ATTENTIVE',
-            'risk_level': risk_level
+            'duration_seconds':      round(duration, 2),
+            'attentive_pct':         attentive_pct,
+            'distracted_pct':        distracted_pct,
+            'alert_count':           len(alerts),
+            'overall_status':        'DISTRACTED' if distracted_pct > 50 else 'ATTENTIVE',
+            'risk_level':            risk_level
         },
         'frame_data': {
-            'timestamps': timestamps,
+            'timestamps':  timestamps,
             'confidences': confidences,
-            'labels': labels
+            'labels':      labels
+        },
+        'multistream': {
+            'reasons': frame_reasons,
+            'head':    frame_head,
+            'eye':     frame_eye,
+            'mouth':   frame_mouth
         },
         'processed_frames': processed_frames,
-        'alerts': alerts,
-        'gradcam': gradcam_data
+        'alerts':    alerts,
+        'gradcam':   gradcam_data
     })
 
 @app.route('/health', methods=['GET'])

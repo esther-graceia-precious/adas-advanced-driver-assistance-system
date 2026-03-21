@@ -16,8 +16,9 @@ def focal_loss(gamma=2., alpha=.25):
     return loss
 
 print("Loading models...")
+# Change this line
 video_model = tf.keras.models.load_model(
-    r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\video_model_86_best.h5",
+    r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\video_model_nst_final.h5",
     custom_objects={'loss': focal_loss()}, compile=False
 )
 head_model  = tf.keras.models.load_model(
