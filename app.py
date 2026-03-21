@@ -44,10 +44,7 @@ print(f"✅ Last conv layer: {last_conv_layer}")
 def generate_gradcam(img_array, model, last_conv_layer_name):
     grad_model = tf.keras.models.Model(
         inputs=model.inputs,
-        outputs=[
-            model.get_layer(last_conv_layer_name).output,
-            model.output
-        ]
+        outputs=[model.get_layer(last_conv_layer_name).output, model.output]
     )
     with tf.GradientTape() as tape:
         conv_outputs, predictions = grad_model(img_array)
@@ -70,16 +67,61 @@ def frame_to_base64(frame):
     _, buffer = cv2.imencode('.jpg', frame)
     return base64.b64encode(buffer).decode('utf-8')
 
-# ================================
-# PREPROCESS
-# ================================
 def preprocess(frame):
     img = cv2.resize(frame, (224, 224))
     img = img / 255.0
     return np.expand_dims(img, axis=0).astype(np.float32)
 
+def get_risk_level(distracted_pct):
+    if distracted_pct < 20:
+        return "LOW"
+    elif distracted_pct < 50:
+        return "MEDIUM"
+    else:
+        return "HIGH"
+
 # ================================
-# ANALYZE VIDEO
+# IMAGE ANALYSIS
+# ================================
+@app.route('/analyze_image', methods=['POST'])
+def analyze_image():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+
+    image_file = request.files['image']
+    img_array = np.frombuffer(image_file.read(), np.uint8)
+    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        return jsonify({'error': 'Cannot read image'}), 400
+
+    img_input = preprocess(frame)
+    prob = float(model.predict(img_input, verbose=0)[0][0])
+    label = "Distracted" if prob > 0.5 else "Attentive"
+    risk = get_risk_level(prob * 100)
+
+    # Grad-CAM
+    gradcam_data = None
+    try:
+        heatmap = generate_gradcam(img_input, model, last_conv_layer)
+        overlay = apply_gradcam_overlay(frame, heatmap)
+        gradcam_data = {
+            'original': frame_to_base64(frame),
+            'gradcam': frame_to_base64(overlay),
+            'confidence': round(prob * 100, 1)
+        }
+    except Exception as e:
+        print(f"Grad-CAM error: {e}")
+
+    return jsonify({
+        'label': label,
+        'confidence': round(prob * 100, 1),
+        'risk_level': risk,
+        'gradcam': gradcam_data
+    })
+
+# ================================
+# VIDEO ANALYSIS
 # ================================
 @app.route('/analyze', methods=['POST'])
 def analyze_video():
@@ -108,6 +150,9 @@ def analyze_video():
     max_prob = 0
     most_distracted_frame = None
 
+    # For processed video frames
+    processed_frames = []
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -119,9 +164,22 @@ def analyze_video():
             confidences.append(round(prob, 4))
             labels.append(label)
             timestamps.append(round(frame_count / fps, 2) if fps > 0 else frame_count)
+
+            # Draw overlay on frame
+            color = (0, 0, 255) if prob > 0.5 else (0, 255, 0)
+            display_frame = frame.copy()
+            cv2.rectangle(display_frame, (10, 10), (400, 60), (0, 0, 0), -1)
+            cv2.putText(display_frame, f"{label} ({prob*100:.1f}%)",
+                       (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+
+            # Save frame as base64
+            if len(processed_frames) < 50:  # limit frames sent to frontend
+                processed_frames.append(frame_to_base64(display_frame))
+
             if prob > max_prob:
                 max_prob = prob
                 most_distracted_frame = frame.copy()
+
         frame_count += 1
 
     cap.release()
@@ -133,16 +191,7 @@ def analyze_video():
     attentive_count = labels.count("Attentive")
     distracted_pct = round((distracted_count / total) * 100, 1) if total > 0 else 0
     attentive_pct = round((attentive_count / total) * 100, 1) if total > 0 else 0
-
-    # ================================
-    # RISK LEVEL
-    # ================================
-    if distracted_pct < 20:
-        risk_level = "LOW"
-    elif distracted_pct < 50:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "HIGH"
+    risk_level = get_risk_level(distracted_pct)
 
     # Alerts
     alerts = []
@@ -173,11 +222,9 @@ def analyze_video():
             img_input = preprocess(most_distracted_frame)
             heatmap = generate_gradcam(img_input, model, last_conv_layer)
             gradcam_overlay = apply_gradcam_overlay(most_distracted_frame, heatmap)
-            original_b64 = frame_to_base64(most_distracted_frame)
-            gradcam_b64 = frame_to_base64(gradcam_overlay)
             gradcam_data = {
-                'original': original_b64,
-                'gradcam': gradcam_b64,
+                'original': frame_to_base64(most_distracted_frame),
+                'gradcam': frame_to_base64(gradcam_overlay),
                 'confidence': round(max_prob * 100, 1)
             }
         except Exception as e:
@@ -198,6 +245,7 @@ def analyze_video():
             'confidences': confidences,
             'labels': labels
         },
+        'processed_frames': processed_frames,
         'alerts': alerts,
         'gradcam': gradcam_data
     })
