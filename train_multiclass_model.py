@@ -3,11 +3,12 @@ from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
 from tensorflow.keras.models import Model
+from sklearn.utils.class_weight import compute_class_weight
+import numpy as np
 
-# ---------------- CONFIG ----------------
 IMG_SIZE = 224
 BATCH_SIZE = 32
-EPOCHS = 10
+EPOCHS = 20
 NUM_CLASSES = 9
 
 TRAIN_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multiclass_dataset"
@@ -16,8 +17,11 @@ TRAIN_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multiclass_datase
 datagen = ImageDataGenerator(
     rescale=1./255,
     validation_split=0.2,
-    rotation_range=10,
-    zoom_range=0.1,
+    rotation_range=20,
+    zoom_range=0.2,
+    width_shift_range=0.15,
+    height_shift_range=0.15,
+    brightness_range=[0.7, 1.3],
     horizontal_flip=True
 )
 
@@ -39,6 +43,15 @@ val_gen = datagen.flow_from_directory(
 
 print("Class mapping:", train_gen.class_indices)
 
+# ---------------- CLASS WEIGHTS ----------------
+labels = train_gen.classes
+class_weights = compute_class_weight(
+    class_weight='balanced',
+    classes=np.unique(labels),
+    y=labels
+)
+class_weights = dict(enumerate(class_weights))
+
 # ---------------- MODEL ----------------
 base_model = MobileNetV2(
     weights="imagenet",
@@ -46,7 +59,9 @@ base_model = MobileNetV2(
     input_shape=(IMG_SIZE, IMG_SIZE, 3)
 )
 
-base_model.trainable = False  # freeze backbone
+# Fine-tuning (important!)
+for layer in base_model.layers[-30:]:
+    layer.trainable = True
 
 x = base_model.output
 x = GlobalAveragePooling2D()(x)
@@ -57,20 +72,19 @@ output = Dense(NUM_CLASSES, activation="softmax")(x)
 model = Model(inputs=base_model.input, outputs=output)
 
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(1e-4),
+    optimizer=tf.keras.optimizers.Adam(1e-5),
     loss="categorical_crossentropy",
     metrics=["accuracy"]
 )
-
-model.summary()
 
 # ---------------- TRAIN ----------------
 history = model.fit(
     train_gen,
     validation_data=val_gen,
-    epochs=EPOCHS
+    epochs=EPOCHS,
+    class_weight=class_weights
 )
 
 # ---------------- SAVE ----------------
 model.save("multiclass_model.keras")
-print("✅ Multi-class model saved as multiclass_model.keras")
+print("✅ Multi-class model saved")

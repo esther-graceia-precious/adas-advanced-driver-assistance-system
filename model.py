@@ -1,3 +1,4 @@
+# model.py - FIXED VERSION
 import tensorflow as tf
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
@@ -6,17 +7,11 @@ from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from tensorflow.keras.callbacks import CSVLogger
+from tensorflow.keras.callbacks import CSVLogger, EarlyStopping, ModelCheckpoint
 
-# IMPORT GENERATORS FROM preprocessing.py
 from preprocessing import train_generator, val_generator
 
-
-# -----------------------------
-# CREATE RESULTS FOLDER
-# -----------------------------
 os.makedirs("results", exist_ok=True)
-
 
 # -----------------------------
 # FOCAL LOSS
@@ -28,7 +23,6 @@ def focal_loss(gamma=2., alpha=.25):
         return alpha * tf.pow((1 - p_t), gamma) * ce
     return loss
 
-
 # -----------------------------
 # CLASS WEIGHTS
 # -----------------------------
@@ -39,30 +33,23 @@ class_weights = compute_class_weight(
     y=labels
 )
 class_weights = dict(enumerate(class_weights))
-
 print("Class Weights:", class_weights)
 
-
 # -----------------------------
-# MODEL ARCHITECTURE
+# MODEL
 # -----------------------------
-IMG_SIZE = (224, 224, 3)
-
 base_model = MobileNetV2(
     weights="imagenet",
     include_top=False,
-    input_shape=IMG_SIZE
+    input_shape=(224, 224, 3)
 )
-
 base_model.trainable = False
 
 x = base_model.output
 x = GlobalAveragePooling2D()(x)
 x = Dense(128, activation="relu")(x)
 output = Dense(1, activation="sigmoid")(x)
-
 model = Model(inputs=base_model.input, outputs=output)
-
 
 # -----------------------------
 # COMPILE
@@ -73,12 +60,21 @@ model.compile(
     metrics=['accuracy']
 )
 
-
 # -----------------------------
-# CSV LOGGER (SAVES METRICS)
+# CALLBACKS
 # -----------------------------
-csv_logger = CSVLogger("results/training_log.csv", append=False)
-
+callbacks = [
+    CSVLogger("results/training_log.csv", append=False),
+    EarlyStopping(monitor='val_accuracy', patience=4, restore_best_weights=True),
+    
+    # ✅ THIS IS THE KEY FIX - saves best model as .h5
+    ModelCheckpoint(
+        "driver_model_best.h5",
+        monitor='val_accuracy',
+        save_best_only=True,
+        verbose=1
+    )
+]
 
 # -----------------------------
 # TRAIN
@@ -88,44 +84,34 @@ history = model.fit(
     validation_data=val_generator,
     epochs=20,
     class_weight=class_weights,
-    callbacks=[csv_logger]
+    callbacks=callbacks
 )
 
+# -----------------------------
+# SAVE FINAL MODEL - .h5 FORMAT ✅
+# -----------------------------
+model.save("driver_model_final.h5")
+print("✅ Model saved as driver_model_final.h5")
 
 # -----------------------------
-# SAVE MODEL
+# GRAPHS
 # -----------------------------
-model.save("driver_model.keras")
-print("Model Saved Successfully!")
-
-
-# -----------------------------
-# ACCURACY GRAPH
-# -----------------------------
+plt.figure()
 plt.plot(history.history['accuracy'], label='Train Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title('Binary Accuracy Curve')
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+plt.title('Accuracy Curve')
 plt.xlabel('Epoch')
 plt.ylabel('Accuracy')
 plt.legend()
-plt.savefig('accuracy_curve_binary.png')
-plt.show()
+plt.savefig('results/accuracy_curve.png')
 
-
-# -----------------------------
-# LOSS GRAPH
-# -----------------------------
+plt.figure()
 plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('Binary Loss Curve')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.title('Loss Curve')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.legend()
-plt.savefig('loss_curve_binary.png')
-plt.show()
+plt.savefig('results/loss_curve.png')
 
-
-# -----------------------------
-# SUMMARY
-# -----------------------------
 model.summary()

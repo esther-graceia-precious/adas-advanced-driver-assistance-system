@@ -5,16 +5,15 @@ import seaborn as sns
 from sklearn.metrics import classification_report, confusion_matrix
 
 # ---------------- CONFIG ----------------
-MODEL_PATH = "driver_model.keras"
-TEST_DIR = "dataset"
-   # or validation/test folder
+MODEL_PATH = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\driver_model.keras"
+TEST_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\dataset"   # ✅ use test or validation folder
 IMG_SIZE = 224
 BATCH_SIZE = 32
 
-class_names = ["Normal", "Distracted"]
+class_names = ["Attentive", "Distracted"]
 
 # ---------------- LOAD MODEL ----------------
-model = tf.keras.models.load_model(MODEL_PATH)
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)
 
 # ---------------- LOAD DATA ----------------
 datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
@@ -32,24 +31,29 @@ y_true = test_gen.classes
 y_pred_probs = model.predict(test_gen).ravel()
 y_pred = (y_pred_probs > 0.5).astype(int)
 
-# ---------------- METRICS ----------------
+# ---------------- CLASSIFICATION REPORT ----------------
 print("\n📊 Binary Classification Report:\n")
-print(classification_report(
-    y_true, y_pred,
-    target_names=class_names
-))
+print(classification_report(y_true, y_pred, target_names=class_names))
 
 # ---------------- CONFUSION MATRIX ----------------
 cm = confusion_matrix(y_true, y_pred)
 
-plt.figure(figsize=(5, 4))
-sns.heatmap(cm, annot=True, fmt="d",
-            xticklabels=class_names,
-            yticklabels=class_names,
-            cmap="Blues")
+plt.figure(figsize=(6, 5))
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt="d",
+    cmap="Blues",
+    xticklabels=class_names,
+    yticklabels=class_names
+)
 
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
+plt.xlabel("Predicted Label")
+plt.ylabel("Actual Label")
 plt.title("Confusion Matrix – Binary Driver Distraction")
-plt.tight_layout()
+
+# ✅ SAVE FOR PPT / REPORT
+plt.savefig("binary_confusion_matrix.png", dpi=300)
 plt.show()
+
+print("✅ Confusion matrix saved as binary_confusion_matrix.png")

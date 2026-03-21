@@ -1,0 +1,8 @@
+              precision    recall  f1-score   support
+
+   Attentive       0.85      0.86      0.85       594
+  Distracted       0.88      0.87      0.87       693
+
+    accuracy                           0.86      1287
+   macro avg       0.86      0.86      0.86      1287
+weighted avg       0.86      0.86      0.86      1287

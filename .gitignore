@@ -1,27 +1,39 @@
-# ---------- Python ----------
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.log
-.env
-venv/
-adas_clean_env/
-adas_xai_env/
-
-# ---------- Datasets (IMPORTANT) ----------
+# Datasets
 dataset/
+new_dataset/
 multiclass_dataset/
+extracted/
+sample_frames/
 test/
-*.zip
+ppt_outputs/
 
-# ---------- Large files ----------
+# Model files
 *.h5
 *.keras
 
-# ---------- OS / Editor ----------
+# Videos
+*.mp4
+
+# Virtual environment
+adas_clean_env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp/junk files
+diagnose.py
+fix_class_imbalance_video.py
+hierarchical_test_demo.py
+model_arch.py
+results.py
+test_demo.py
+test_load.py
+train.py
+video_detection_fixed.py
+video_detection_test.py
+
+# OS files
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
-

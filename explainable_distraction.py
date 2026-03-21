@@ -6,10 +6,14 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 
 # ------------------ LOAD MODEL ------------------
-model = load_model("driver_model.keras")
+model = load_model(
+    r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\driver_model.keras",
+    compile=False
+)
+
 
 IMG_SIZE = 224
-TEST_DIR = "dataset/test"
+TEST_DIR = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\test"
 
 # ------------------ LOAD HAAR CASCADES ------------------
 face_cascade = cv2.CascadeClassifier(
@@ -82,7 +86,7 @@ def predict_image(img_path):
     return label, confidence, reason, original_img
 
 # ------------------ TEST MULTIPLE IMAGES ------------------
-test_images = os.listdir(TEST_DIR)[0:10]
+test_images = os.listdir(TEST_DIR)[0:1]
 
 for img_name in test_images:
     path = os.path.join(TEST_DIR, img_name)
