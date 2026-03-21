@@ -33,6 +33,11 @@ test_load.py
 train.py
 video_detection_fixed.py
 video_detection_test.py
+multistream/results/frames/
+multistream/results/*.avi
+multistream/results/*.mp4
+multistream/test_normal.py
+multistream/save_frames.py
 
 # OS files
 .DS_Store
