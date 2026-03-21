@@ -6,6 +6,7 @@ extracted/
 sample_frames/
 test/
 ppt_outputs/
+video_augmented/
 
 # Model files
 *.h5
