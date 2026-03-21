@@ -251,6 +251,17 @@ Dense(N, Softmax)     ← Multiclass
   "alerts": [{ "start": 12.5, "end": 18.3 }],
   "gradcam": { "original": "...", "gradcam": "..." }
 }
+```
+
+---
+
+## Explainability
+
+This project emphasizes **Explainable AI (XAI)** — a key research direction also explored in our published work on pancreatic cancer classification.
+
+- **Grad-CAM:** Gradient-weighted Class Activation Mapping highlights regions the model focuses on
+- **Multistream:** Provides human-interpretable reasons (Head Left, Gaze Down, Yawning)
+- **Risk Score:** Quantifies distraction severity for actionable insights
 
 ---
 
@@ -272,15 +283,7 @@ Dense(N, Softmax)     ← Multiclass
 
 ---
 
-## Related Publication
-
-> *"Utilizing Explainable AI to Decipher Transcriptomic Alterations in Pancreatic Cancer"*
-> Published in **Elsevier Human Gene Journal, 2025**
-> Demonstrates the application of XAI techniques for medical classification — methodologies extended to driver distraction detection in this project.
-
----
-
-## Tech Stack
+## 🛠️ Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
