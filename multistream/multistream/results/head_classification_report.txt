@@ -1,0 +1,15 @@
+                     precision    recall  f1-score   support
+
+ Diagonal Down Left       0.58      0.15      0.23        48
+Diagonal Down Right       0.67      0.45      0.54        44
+   Diagonal Up Left       0.83      0.11      0.19        46
+  Diagonal Up Right       0.51      0.78      0.62        55
+               Down       0.65      0.82      0.73        50
+            Frontal       0.73      0.99      0.84        86
+               Left       0.56      0.92      0.70        53
+              Right       0.74      0.52      0.61        54
+                 Up       0.98      0.98      0.98        46
+
+           accuracy                           0.67       482
+          macro avg       0.70      0.64      0.60       482
+       weighted avg       0.69      0.67      0.63       482

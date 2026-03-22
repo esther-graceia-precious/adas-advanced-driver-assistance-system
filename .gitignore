@@ -7,6 +7,7 @@ sample_frames/
 test/
 ppt_outputs/
 video_augmented/
+augmented_dataset/
 
 # Model files
 *.h5
@@ -32,6 +33,10 @@ results.py
 test_demo.py
 test_load.py
 train.py
+driver_distraction_model.h5
+driver_model.keras
+driver_weights_final.h5
+Attentive.mp4
 video_detection_fixed.py
 video_detection_test.py
 multistream/results/frames/
