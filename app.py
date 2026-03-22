@@ -56,15 +56,15 @@ face_cascade = cv2.CascadeClassifier(
 
 try:
     head_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\head_model_best.h5",
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\head_model_best.h5",
         compile=False
     )
     eye_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\eye_model_best.h5",
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\eye_model_best.h5",
         compile=False
     )
     mouth_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\mouth_model_best.h5",
+        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\mouth_model_best.h5",
         compile=False
     )
     multistream_loaded = True
@@ -212,7 +212,9 @@ def analyze_image():
     if frame is None:
         return jsonify({'error': 'Cannot read image'}), 400
 
-    img_input = preprocess(frame)
+    # Try face crop first to reduce background bias
+    face_crop, _ = get_face_crop(frame)
+    img_input = preprocess(face_crop if face_crop is not None else frame)
     prob      = float(model.predict(img_input, verbose=0)[0][0])
     label     = "Distracted" if prob > 0.5 else "Attentive"
     risk      = get_risk_level(prob * 100)

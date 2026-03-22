@@ -8,6 +8,7 @@ test/
 ppt_outputs/
 video_augmented/
 augmented_dataset/
+binary_dataset/
 
 # Model files
 *.h5
