@@ -21,7 +21,8 @@ def focal_loss(gamma=2., alpha=.25):
         p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)
         return alpha * tf.pow((1 - p_t), gamma) * ce
     return loss
-MODEL_PATH = r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\video_model_nst_v2_best.h5"
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "multistream", "multistream", "video_model_nst_v2_best.h5")
 model = tf.keras.models.load_model(
     MODEL_PATH,
     custom_objects={'loss': focal_loss()},
@@ -56,15 +57,15 @@ face_cascade = cv2.CascadeClassifier(
 
 try:
     head_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\head_model_best.h5",
+        os.path.join(BASE_DIR, "multistream", "multistream", "head_model_best.h5"),
         compile=False
     )
     eye_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\eye_model_best.h5",
+        os.path.join(BASE_DIR, "multistream", "multistream", "eye_model_best.h5"),
         compile=False
     )
     mouth_model = tf.keras.models.load_model(
-        r"C:\Users\A Esther Graceia\Documents\ADAS_PROJECT\multistream\multistream\mouth_model_best.h5",
+        os.path.join(BASE_DIR, "multistream", "multistream", "mouth_model_best.h5"),
         compile=False
     )
     multistream_loaded = True
