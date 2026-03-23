@@ -10,7 +10,7 @@ import tempfile
 import base64
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://your-app.vercel.app", "http://localhost:5173"])
 
 # ================================
 # LOAD MAIN VIDEO MODEL
