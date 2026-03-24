@@ -11,9 +11,6 @@ import base64
 
 app = Flask(__name__)
 CORS(app, origins=[
-    "https://adas-advanced-driver-assistance-sys.vercel.app",
-    "https://adas-advanced-drive-git-5b7975-esther-graceia-precious-projects.vercel.app",
-    "https://adas-advanced-driver-assistance-system-qkb5cuowm.vercel.app",
     "http://localhost:5173",
     "http://localhost:3000"
 ])

@@ -5,7 +5,7 @@ import {
   Tooltip, ReferenceLine, ResponsiveContainer
 } from "recharts";
 
-const API_URL = "https://adas-backend-gehz.onrender.com";
+const API_URL = "http://localhost:5000";
 
 const css = `
   @keyframes blink {
