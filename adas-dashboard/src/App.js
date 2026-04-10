@@ -647,7 +647,7 @@ function LiveMode() {
   useEffect(() => { return () => stopCamera(); }, [stopCamera]);
 
   const bad = result?.label === 'Distracted';
-  const rs  = result ? riskStyle(result.risk_level) : null;
+  //const rs  = result ? riskStyle(result.risk_level) : null;
 
   // Session stats come from result.session (live route returns running totals)
   const session = result?.session;

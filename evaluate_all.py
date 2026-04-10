@@ -338,7 +338,7 @@ for class_name in ['attentive', 'distracted']:
         
         # 3. Apply Heuristic Fusion (UNPACKING THE 4 RETURNS)
         # We unpack: (dict, counter, count, duration)
-        ms_info, c1, c2, c3 = get_multistream_info(
+        ms_info, c1, c2, c3, _ = get_multistream_info(
             frame, 
             raw_prob > 0.5, 
             eye_closed_counter=0, 
