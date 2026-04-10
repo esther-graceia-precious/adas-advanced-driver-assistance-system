@@ -268,11 +268,44 @@ def get_multistream_info(frame, ai_distracted,
         reasons              = []
         heuristic_distracted = False
 
+        # --- MEDIAPIPE EAR/MAR (NEW ADDITION) ---
+    if frame_b64:
+        metrics = get_ear_mar(frame_b64)
+
+        if metrics['ear'] is not None:
+            # combine with existing eye logic
+            if metrics['ear'] < 0.22:
+                eye_closed_counter += 1
+            else:
+                eye_closed_counter = 0
+
+            # fatigue detection
+            if eye_closed_counter == FATIGUE_THRESHOLD:
+                fatigue_events_count += 1
+                reasons.append("Fatigue (EAR)")
+
+            if eye_closed_counter >= FATIGUE_THRESHOLD:
+                heuristic_distracted = True
+                fatigue_max_duration = max(fatigue_max_duration, eye_closed_counter)
+
+            # live early warning
+            if live_mode and eye_closed_counter >= 3:
+                heuristic_distracted = True
+                if "Eyes Closed - Fatigue/Distraction" not in reasons:
+                    reasons.append("Eyes Closed - Fatigue/Distraction (EAR)")
+
+        if metrics['mar'] is not None:
+            if metrics['mar'] > 0.6:
+                if "Yawning Detected" not in reasons:
+                    reasons.append("Yawning Detected")
+                    heuristic_distracted = True
+
         # Live uses 0.65 (more sensitive); video uses 0.70
         eye_conf_threshold = 0.65 if live_mode else 0.70
 
         # FATIGUE ACCUMULATOR
-        if eye_class == 'Closed' and eye_conf > eye_conf_threshold:
+        if (eye_class == 'Closed' and eye_conf > eye_conf_threshold) or \
+   (frame_b64 and metrics.get('ear') is not None and metrics['ear'] < 0.22):
             eye_closed_counter += 1
             if eye_closed_counter == FATIGUE_THRESHOLD:
                 fatigue_events_count += 1

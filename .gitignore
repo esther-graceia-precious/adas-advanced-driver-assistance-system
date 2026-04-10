@@ -56,11 +56,6 @@ multistream/save_frames.py
 .DS_Store
 Thumbs.db
 
-!multistream/multistream/video_model_nst_v2_best.h5
-!multistream/multistream/head_model_best.h5
-!multistream/multistream/eye_model_best.h5
-!multistream/multistream/mouth_model_best.h5
-
 desktop.ini
 results/
 webcam_test_set/
