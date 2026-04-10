@@ -9,16 +9,22 @@ ppt_outputs/
 video_augmented/
 augmented_dataset/
 binary_dataset/
+Custom_dataset/
+face_dataset/
 
 # Model files
 *.h5
 *.keras
+*.pt
+*.caffemodel
 
 # Videos
 *.mp4
 
 # Virtual environment
 adas_clean_env/
+yolo_env/
+mediapipe_env/
 
 # Python cache
 __pycache__/
@@ -54,3 +60,8 @@ Thumbs.db
 !multistream/multistream/head_model_best.h5
 !multistream/multistream/eye_model_best.h5
 !multistream/multistream/mouth_model_best.h5
+
+desktop.ini
+results/
+webcam_test_set/
+face_dataset_v2/

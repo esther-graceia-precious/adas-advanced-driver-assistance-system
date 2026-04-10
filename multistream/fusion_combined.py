@@ -61,21 +61,18 @@ def get_face_crop(frame):
         return frame[y:y+h, x:x+w], (x, y, w, h)
     return None, None
 
+# --- ADD THESE GLOBALS FOR FATIGUE TRACKING ---
+EYE_CLOSED_COUNTER = 0 
+FATIGUE_THRESHOLD = 8 # Number of frames to trigger fatigue
+
 def predict_combined(frame):
+    global EYE_CLOSED_COUNTER
     img = preprocess(frame)
 
-    # PRIMARY — video model on full frame
+    # 1. PRIMARY — video model on full frame
     video_prob = float(video_model.predict(img, verbose=0)[0][0])
-    is_distracted_video = video_prob > 0.45
-    # Additional override — if head is clearly down with high confidence
-    # driver is likely looking at phone/object
-    if not is_distracted_video:
-        head_for_check = HEAD_CLASSES[np.argmax(
-            head_model.predict(preprocess(get_face_crop(frame)[0] 
-            if get_face_crop(frame)[0] is not None else frame), verbose=0)[0]
-        )]
-
-    # SECONDARY — multistream on face crop
+    
+    # 2. SECONDARY — multistream on face crop
     face_crop, face_coords = get_face_crop(frame)
     face_found = face_crop is not None
 
@@ -84,47 +81,48 @@ def predict_combined(frame):
         head_pred  = head_model.predict(face_img,  verbose=0)[0]
         eye_pred   = eye_model.predict(face_img,   verbose=0)[0]
         mouth_pred = mouth_model.predict(face_img, verbose=0)[0]
+        
+        head_class  = HEAD_CLASSES[np.argmax(head_pred)]
+        eye_class   = EYE_CLASSES[np.argmax(eye_pred)]
+        mouth_class = MOUTH_CLASSES[np.argmax(mouth_pred)]
     else:
-        head_pred  = np.zeros(9)
-        eye_pred   = np.zeros(6)
-        mouth_pred = np.zeros(3)
+        head_class = eye_class = mouth_class = 'N/A'
 
-    head_class  = HEAD_CLASSES[np.argmax(head_pred)]
-    eye_class   = EYE_CLASSES[np.argmax(eye_pred)]
-    mouth_class = MOUTH_CLASSES[np.argmax(mouth_pred)]
-    head_conf   = float(np.max(head_pred))
-    eye_conf    = float(np.max(eye_pred))
-    mouth_conf  = float(np.max(mouth_pred))
-
-    # REASONS — based on face crop analysis
+    # --- 3. GEOMETRIC HEURISTIC OVERRIDES (The Fix) ---
+    heuristic_distracted = False
     reasons = []
-    if is_distracted_video and face_found:
-        if head_class in ['Left', 'Right', 'Diagonal Up Left', 'Diagonal Up Right'] \
-           and eye_class in ['Up', 'Left', 'Right']:
-            reasons.append("Phone/Object use suspected")
-        else:
-            if head_class in DISTRACTED_HEAD:
-                reasons.append(f"Head {head_class}")
-            if eye_class == 'Closed':
-                reasons.append("Eyes Closed (Fatigue)")
-            elif eye_class in DISTRACTED_EYE:
-                reasons.append(f"Gaze {eye_class}")
-            if mouth_class == 'Wide Open':
-                if head_class in ['Down', 'Diagonal Down Left', 'Diagonal Down Right']:
-                    reasons.append("Drinking/Eating suspected")
-                else:
-                    reasons.append("Yawning (Fatigue)")
 
-    if is_distracted_video and not reasons:
-        reasons.append("Distraction detected")
+    if face_found:
+        # A. Phone/Lap Gaze: If head is down AND eyes are down/closed
+        if head_class in ['Down', 'Diagonal Down Left', 'Diagonal Down Right'] and eye_class in ['Down', 'Closed']:
+            heuristic_distracted = True
+            reasons.append("Phone Use / Looking at Lap")
+
+        # B. Fatigue: Check for consecutive eye closure
+        if eye_class == 'Closed':
+            EYE_CLOSED_COUNTER += 1
+            if EYE_CLOSED_COUNTER >= FATIGUE_THRESHOLD:
+                heuristic_distracted = True
+                reasons.append("FATIGUE: Eyes Closed")
+        else:
+            EYE_CLOSED_COUNTER = 0
+
+        # C. Visual Distraction: Head turned but eyes not front
+        if head_class in ['Left', 'Right'] and eye_class != 'Front':
+            heuristic_distracted = True
+            reasons.append(f"Looking {head_class}")
+
+    # Final Decision Fusion
+    # We trust the heuristic (Logic) over the video model (Intuition)
+    is_distracted = (video_prob > 0.55) or heuristic_distracted
 
     return {
-        'is_distracted': is_distracted_video,
+        'is_distracted': is_distracted,
         'video_confidence': round(video_prob * 100, 1),
         'face_detected': face_found,
         'face_coords': face_coords,
-        'head':  {'class': head_class if face_found else 'N/A', 'confidence': round(head_conf * 100, 1)},
-        'eye':   {'class': eye_class  if face_found else 'N/A', 'confidence': round(eye_conf  * 100, 1)},
-        'mouth': {'class': mouth_class if face_found else 'N/A','confidence': round(mouth_conf* 100, 1)},
+        'head': {'class': head_class, 'confidence': 0}, # Simplified
+        'eye':  {'class': eye_class, 'confidence': 0},
+        'mouth': {'class': mouth_class, 'confidence': 0},
         'reasons': reasons
     }
