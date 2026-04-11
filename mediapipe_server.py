@@ -6,8 +6,7 @@ import mediapipe as mp
 
 app = Flask(__name__)
 
-mp_face = mp.solutions.face_mesh
-face_mesh = mp_face.FaceMesh(static_image_mode=False)
+mp_face_mesh = mp.solutions.face_mesh
 
 def calculate_ear(landmarks, w, h):
     eye = [33, 160, 158, 133, 153, 144]
@@ -32,25 +31,46 @@ def calculate_mar(landmarks, w, h):
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    data = request.get_json()
+    try:
+        data = request.get_json()
 
-    img_bytes = base64.b64decode(data['image'])
-    img_array = np.frombuffer(img_bytes, np.uint8)
-    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        # Decode image
+        img_bytes = base64.b64decode(data['image'])
+        img_array = np.frombuffer(img_bytes, np.uint8)
+        frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = face_mesh.process(rgb)
+        if frame is None:
+            return jsonify({'error': 'Invalid image data', 'ear': None, 'mar': None}), 400
 
-    if not result.multi_face_landmarks:
-        return jsonify({'ear': None, 'mar': None})
+        # Create a NEW FaceMesh instance for each request
+        with mp_face_mesh.FaceMesh(
+            static_image_mode=True,  # Changed to True for stateless processing
+            max_num_faces=1,
+            refine_landmarks=False,
+            min_detection_confidence=0.5
+        ) as face_mesh:
+            
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            result = face_mesh.process(rgb)
 
-    landmarks = result.multi_face_landmarks[0]
-    h, w, _ = frame.shape
+            if not result.multi_face_landmarks:
+                return jsonify({'ear': None, 'mar': None})
 
-    ear = calculate_ear(landmarks, w, h)
-    mar = calculate_mar(landmarks, w, h)
+            landmarks = result.multi_face_landmarks[0]
+            h, w, _ = frame.shape
 
-    return jsonify({'ear': ear, 'mar': mar})
+            ear = calculate_ear(landmarks, w, h)
+            mar = calculate_mar(landmarks, w, h)
+
+            return jsonify({'ear': float(ear), 'mar': float(mar)})
+
+    except Exception as e:
+        print(f"Error in analyze: {str(e)}")
+        return jsonify({'error': str(e), 'ear': None, 'mar': None}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
 
 if __name__ == '__main__':
-    app.run(port=5002)
+    app.run(port=5002, debug=False)

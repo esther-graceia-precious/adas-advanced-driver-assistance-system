@@ -62,6 +62,26 @@ model = tf.keras.models.load_model(
 )
 print("✅ Main model loaded!")
 
+# ================================
+# LOAD CUSTOM MODEL (For live ensemble)
+# ================================
+CUSTOM_MODEL_PATH = os.path.join(BASE_DIR, "video_model_custom_final.h5")
+custom_model = None
+
+if os.path.exists(CUSTOM_MODEL_PATH):
+    try:
+        custom_model = tf.keras.models.load_model(
+            CUSTOM_MODEL_PATH,
+            custom_objects={'loss': focal_loss()},
+            compile=False
+        )
+        print("✅ Custom model loaded for live ensemble!")
+    except Exception as e:
+        print(f"⚠️ Custom model failed to load: {e}")
+        custom_model = None
+else:
+    print("⚠️ Custom model not found — live mode will use SDDD model only")
+
 def get_last_conv_layer(model):
     for layer in reversed(model.layers):
         if isinstance(layer, tf.keras.layers.Conv2D):
@@ -118,6 +138,29 @@ def new_session_state():
         'total_count':          0,
         'phone_suspect_counter': 0,   # ← ADD THIS
     }
+
+
+# ================================
+# ENSEMBLE PREDICTION
+# ================================
+def get_ensemble_prediction(frame, use_ensemble=True):
+    img_input = preprocess(frame)
+    
+    # SDDD model prediction
+    prob_sddd = float(model.predict(img_input, verbose=0)[0][0])
+    
+    # If ensemble disabled or custom model not available, return SDDD only
+    if not use_ensemble or custom_model is None:
+        return prob_sddd
+    
+    # Custom model prediction
+    prob_custom = float(custom_model.predict(img_input, verbose=0)[0][0])
+    
+    # Weighted ensemble: 60% SDDD (generalization) + 40% Custom (setup-specific)
+    ensemble_prob = 0.60 * prob_sddd + 0.40 * prob_custom
+    
+    return ensemble_prob
+
 
 # ================================
 # HELPERS
@@ -247,134 +290,157 @@ def get_multistream_info(frame, ai_distracted,
         return (
             {'face_detected': False, 'head': 'N/A', 'eye': 'N/A', 'mouth': 'N/A',
              'reasons': [], 'final_distracted': ai_distracted},
-            eye_closed_counter, fatigue_events_count, fatigue_max_duration
+            eye_closed_counter, fatigue_events_count, fatigue_max_duration, phone_suspect_counter
         )
 
     face_crop, _ = get_face_crop(frame)
     face_found   = face_crop is not None
 
-    if face_found:
-        face_img    = preprocess(face_crop)
-        h_preds     = head_model.predict(face_img, verbose=0)[0]
-        e_preds     = eye_model.predict(face_img,  verbose=0)[0]
-        m_preds     = mouth_model.predict(face_img, verbose=0)[0]
+    if not face_found:
+        return (
+            {'face_detected': False, 'head': 'N/A', 'eye': 'N/A', 'mouth': 'N/A',
+             'reasons': [], 'final_distracted': ai_distracted},
+            eye_closed_counter, fatigue_events_count, fatigue_max_duration, phone_suspect_counter
+        )
 
-        h_conf      = np.max(h_preds)
-        head_class  = HEAD_CLASSES[np.argmax(h_preds)] if h_conf >= 0.75 else 'Frontal'
-        eye_class   = EYE_CLASSES[np.argmax(e_preds)]
-        eye_conf    = np.max(e_preds)
-        mouth_class = MOUTH_CLASSES[np.argmax(m_preds)]
+    # ================================
+    # MULTISTREAM PREDICTIONS
+    # ================================
+    face_img    = preprocess(face_crop)
+    h_preds     = head_model.predict(face_img, verbose=0)[0]
+    e_preds     = eye_model.predict(face_img,  verbose=0)[0]
+    m_preds     = mouth_model.predict(face_img, verbose=0)[0]
 
-        reasons              = []
-        heuristic_distracted = False
+    h_conf      = np.max(h_preds)
+    head_class  = HEAD_CLASSES[np.argmax(h_preds)] if h_conf >= 0.75 else 'Frontal'
+    eye_class   = EYE_CLASSES[np.argmax(e_preds)]
+    eye_conf    = np.max(e_preds)
+    mouth_class = MOUTH_CLASSES[np.argmax(m_preds)]
 
-        # --- MEDIAPIPE EAR/MAR (NEW ADDITION) ---
+    reasons              = []
+    heuristic_distracted = False
+
+    # ================================
+    # MEDIAPIPE EAR/MAR ANALYSIS
+    # ================================
+    ear = None
+    mar = None
+    
     if frame_b64:
         metrics = get_ear_mar(frame_b64)
+        ear = metrics.get('ear')
+        mar = metrics.get('mar')
 
-        if metrics['ear'] is not None:
-            # combine with existing eye logic
-            if metrics['ear'] < 0.22:
-                eye_closed_counter += 1
-            else:
-                eye_closed_counter = 0
+    # ================================
+    # FATIGUE DETECTION (UNIFIED)
+    # ================================
+    eye_conf_threshold = 0.65 if live_mode else 0.70
+    
+    eyes_closed = False
+    
+    # Source 1: MediaPipe EAR
+    if ear is not None and ear < 0.25:  # ← ADJUSTED THRESHOLD
+        eyes_closed = True
+        
+    # Source 2: Multistream eye model
+    if eye_class == 'Closed' and eye_conf > eye_conf_threshold:
+        eyes_closed = True
 
-            # fatigue detection
-            if eye_closed_counter == FATIGUE_THRESHOLD:
-                fatigue_events_count += 1
-                reasons.append("Fatigue (EAR)")
+    # Accumulate fatigue counter
+    if eyes_closed:
+        eye_closed_counter += 1
+        
+        if eye_closed_counter == FATIGUE_THRESHOLD:
+            fatigue_events_count += 1
+            reasons.append("Fatigue Detected")
+        
+        if eye_closed_counter >= FATIGUE_THRESHOLD:
+            heuristic_distracted = True
+            fatigue_max_duration = max(fatigue_max_duration, eye_closed_counter)
+        
+        if live_mode and eye_closed_counter >= 3:
+            heuristic_distracted = True
+            if "Eyes Closed - Fatigue/Distraction" not in reasons:
+                source = "(EAR)" if ear is not None else "(Model)"
+                reasons.append(f"Eyes Closed {source}")
+    else:
+        eye_closed_counter = 0
 
-            if eye_closed_counter >= FATIGUE_THRESHOLD:
+    # ================================
+    # YAWNING DETECTION
+    # ================================
+    if mar is not None and mar > 0.6:
+        if "Yawning Detected" not in reasons:
+            reasons.append("Yawning Detected")
+            heuristic_distracted = True
+
+    # ================================
+    # PHONE USAGE DETECTION
+    # ================================
+    if head_class in ['Left', 'Right'] and eye_class in ['Left', 'Right', 'Front']:
+        phone_suspect_counter += 1
+        if phone_suspect_counter >= 5:
+            if "Phone Usage Suspected" not in reasons:
+                reasons.append("Phone Usage Suspected")
                 heuristic_distracted = True
-                fatigue_max_duration = max(fatigue_max_duration, eye_closed_counter)
+    else:
+        phone_suspect_counter = 0
 
-            # live early warning
-            if live_mode and eye_closed_counter >= 3:
-                heuristic_distracted = True
-                if "Eyes Closed - Fatigue/Distraction" not in reasons:
-                    reasons.append("Eyes Closed - Fatigue/Distraction (EAR)")
+    # ================================
+    # DRINKING DETECTION
+    # ================================
+    if head_class == 'Down' and mouth_class == 'Wide Open':
+        if "Drinking Suspected" not in reasons:
+            reasons.append("Drinking Suspected")
+            heuristic_distracted = True
 
-        if metrics['mar'] is not None:
-            if metrics['mar'] > 0.6:
-                if "Yawning Detected" not in reasons:
-                    reasons.append("Yawning Detected")
-                    heuristic_distracted = True
-
-        # Live uses 0.65 (more sensitive); video uses 0.70
-        eye_conf_threshold = 0.65 if live_mode else 0.70
-
-        # FATIGUE ACCUMULATOR
-        if (eye_class == 'Closed' and eye_conf > eye_conf_threshold) or \
-   (frame_b64 and metrics.get('ear') is not None and metrics['ear'] < 0.22):
-            eye_closed_counter += 1
-            if eye_closed_counter == FATIGUE_THRESHOLD:
-                fatigue_events_count += 1
-                reasons.append("Fatigue Detected")
-            if eye_closed_counter >= FATIGUE_THRESHOLD:
-                heuristic_distracted = True
-                fatigue_max_duration = max(fatigue_max_duration, eye_closed_counter)
-            # In live mode, even short eye closure (3+ frames) is flagged
-            if live_mode and eye_closed_counter >= 3:
-                heuristic_distracted = True
-                if "Eyes Closed - Fatigue/Distraction" not in reasons:
-                    reasons.append("Eyes Closed - Fatigue/Distraction")
-        else:
-            eye_closed_counter = 0
-
-        # --- DISTRACTION BEHAVIOR DETECTION ---
-        # Uses persistence to separate quick glances from sustained distraction
-
-        # PHONE USAGE: head turned + sustained (not a quick mirror check)
-        # Pass phone_suspect_counter in and out like eye_closed_counter
-        if head_class in ['Left', 'Right'] and eye_class in ['Left', 'Right', 'Front']:
-            phone_suspect_counter += 1
-            if phone_suspect_counter >= 5:   # ~5 frames sustained = phone not mirror
-                if "Phone Usage Suspected" not in reasons:
-                    reasons.append("Phone Usage Suspected")
-        else:
-            phone_suspect_counter = 0
-
-        # DRINKING: head down + mouth wide open
-        if head_class == 'Down' and mouth_class == 'Wide Open':
-            if "Drinking Suspected" not in reasons:
-                reasons.append("Drinking Suspected")
-
-        # EATING: mouth wide open while roughly frontal (not looking away)
-        if mouth_class == 'Wide Open' and head_class in ['Frontal', 'Down']:
+    # ================================
+    # EATING DETECTION
+    # ================================
+    if mouth_class == 'Wide Open' and head_class in ['Frontal', 'Down']:
+        # Add MAR confirmation to reduce false positives
+        if mar is None or mar > 0.35:  # Only if mouth is REALLY open
             if "Eating Suspected" not in reasons:
                 reasons.append("Eating Suspected")
+                heuristic_distracted = True
 
-        # --- YOLO OBJECT DETECTION (phone / drinking) ---
-        # frame_b64 is passed in — see Change 3 below
-        if frame_b64:
-            yolo = detect_objects_yolo(frame_b64)
-            if yolo.get('phone'):
+    # ================================
+    # YOLO OBJECT DETECTION (HIGH PRIORITY)
+    # ================================
+    phone_detected = False
+    drinking_detected = False
+    
+    if frame_b64:
+        yolo = detect_objects_yolo(frame_b64)
+        if yolo.get('phone'):
+            phone_detected = True
+            if "📱 Phone Detected" not in reasons:
                 reasons.append("📱 Phone Detected")
                 heuristic_distracted = True
-            if yolo.get('drinking'):
-                # only flag drinking if mouth model also agrees
-                if mouth_class == 'Wide Open':
-                    reasons.append("🥤 Drinking Suspected")
+        if yolo.get('drinking'):
+            if mouth_class == 'Wide Open':
+                drinking_detected = True
+                if "🥤 Drinking Detected" not in reasons:
+                    reasons.append("🥤 Drinking Detected")
                     heuristic_distracted = True
 
-
-        # HEURISTIC FUSION ENGINE
-        if head_class == 'Frontal' and eye_class == 'Front':
-            # Rule 1: Frontal + forward gaze → always Attentive
-            final_is_distracted = False
-        elif head_class in DISTRACTED_HEAD:
-            # Rule 2: Distracted head pose → always Distracted
-            reasons.append(f"Looking {head_class}")
-            heuristic_distracted = True
-            final_is_distracted  = True
-        else:
-            # Rule 3: No strong physical signal → trust AI + fatigue
-            final_is_distracted = ai_distracted or heuristic_distracted
-
+    # ================================
+    # HEURISTIC FUSION ENGINE
+    # ================================
+    # CRITICAL: Phone/drinking override everything
+    if phone_detected or drinking_detected:
+        final_is_distracted = True
+    elif head_class == 'Frontal' and eye_class == 'Front':
+        # Rule 1: Clear attention
+        final_is_distracted = False
+    elif head_class in DISTRACTED_HEAD:
+        # Rule 2: Distracted head pose
+        reasons.append(f"Looking {head_class}")
+        heuristic_distracted = True
+        final_is_distracted  = True
     else:
-        head_class = eye_class = mouth_class = 'N/A'
-        reasons             = []
-        final_is_distracted = ai_distracted
+        # Rule 3: Ambiguous — trust AI + heuristics
+        final_is_distracted = ai_distracted or heuristic_distracted
 
     ms_info = {
         'face_detected':    face_found,
@@ -382,8 +448,11 @@ def get_multistream_info(frame, ai_distracted,
         'eye':              eye_class,
         'mouth':            mouth_class,
         'reasons':          reasons,
-        'final_distracted': final_is_distracted
+        'final_distracted': final_is_distracted,
+        'ear':              ear,
+        'mar':              mar,
     }
+    
     return ms_info, eye_closed_counter, fatigue_events_count, fatigue_max_duration, phone_suspect_counter
 
 # ================================
@@ -503,26 +572,27 @@ def analyze_live():
 
     s = live_sessions[session_id]
 
-    # Main model — raised threshold (0.75) to counter domain gap on webcam
-    face_crop, _ = get_face_crop(frame)
-    img_input    = preprocess(face_crop if face_crop is not None else frame)
-    prob         = float(model.predict(img_input, verbose=0)[0][0])
-    ai_distracted = prob > 0.75
-
-    # In analyze_live only — convert frame to b64 once and pass it:
+    # ═══════════════════════════════════════════════════════════
+    # CHANGE: Use ensemble prediction for live mode
+    # ═══════════════════════════════════════════════════════════
+    prob = get_ensemble_prediction(frame, use_ensemble=True)  # ← CHANGED
+    ai_distracted = prob > 0.65  # ← Adjusted threshold for ensemble
+    
+    # Encode frame for MediaPipe/YOLO
     frame_b64_for_yolo = base64.b64encode(
         cv2.imencode('.jpg', frame)[1]
     ).decode('utf-8')
-
 
     # Multistream + Heuristic Fusion + Fatigue (live_mode=True)
     ms, s['eye_closed_counter'], s['fatigue_events_count'], s['fatigue_max_duration'], s['phone_suspect_counter'] = \
         get_multistream_info(
             frame, ai_distracted,
             s['eye_closed_counter'], s['fatigue_events_count'], s['fatigue_max_duration'],
+            s['phone_suspect_counter'],
             live_mode=True,
             frame_b64=frame_b64_for_yolo
         )
+    print(f"🔍 EAR: {ms.get('ear')}, MAR: {ms.get('mar')}, Counter: {s['eye_closed_counter']}, Reasons: {ms['reasons']}")
 
     # Temporal smoothing: 15-frame buffer, need 9/15 to confirm distracted
     s['temporal_buffer'].append(1 if ms['final_distracted'] else 0)
@@ -548,10 +618,13 @@ def analyze_live():
             'eye':           ms['eye'],
             'mouth':         ms['mouth'],
             'reasons':       ms['reasons'],
+            'ear':           ms.get('ear'),  # ← ADD
+            'mar':           ms.get('mar'), 
         },
         'session': {
             'distracted_pct': distracted_pct,
             'fatigue_events': s['fatigue_events_count'],
+            'eye_closed_frames': s['eye_closed_counter'],
             'safety_score':   safety_score,
             'safety_grade':   safety_grade,
             'safety_message': safety_message,
@@ -605,6 +678,8 @@ def analyze_video():
             break
 
         if frame_count % sample_every == 0:
+            _, buffer = cv2.imencode('.jpg', frame)
+            frame_b64_for_services = base64.b64encode(buffer).decode('utf-8')
             img_input     = preprocess(frame)
             prob          = float(model.predict(img_input, verbose=0)[0][0])
             ai_distracted = prob > 0.5  # Video keeps standard 0.5 threshold
@@ -614,7 +689,8 @@ def analyze_video():
                     frame, ai_distracted,
                     eye_closed_counter, fatigue_events_count, fatigue_max_duration,
                     phone_suspect_counter,
-                    live_mode=False
+                    live_mode=False,
+                    frame_b64=frame_b64_for_services
                 )
 
             temporal_buffer.append(1 if ms['final_distracted'] else 0)
