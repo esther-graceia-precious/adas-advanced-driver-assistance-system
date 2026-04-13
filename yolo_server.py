@@ -20,8 +20,7 @@ TARGETS = {
     67: 'cell phone',
     39: 'bottle',
     41: 'cup',      # Very common misidentification for bottles
-    52: 'hot dog',  # Your logs showed this is a frequent confusion
-    65: 'remote'    # Common confusion for slim smartphones
+    52: 'hot dog'  # Your logs showed this is a frequent confusion
 }
 
 @app.route('/detect', methods=['POST'])
@@ -42,7 +41,7 @@ def detect():
             return jsonify({'phone': False, 'drinking': False, 'raw': []}), 200
 
         # CRITICAL FIX: Remove class filter to see ALL detections first
-        results = model(frame, verbose=False, conf=0.20)  # Lowered confidence
+        results = model(frame, verbose=False, conf=0.30)  # Lowered confidence
 
         # Log ALL detections (debugging)
         all_detections = []
@@ -74,7 +73,7 @@ def detect():
 
     return jsonify({
         'phone': any(d['class'] == 'cell phone' for d in detections),
-        'drinking': any(d['class'] in ['bottle'] for d in detections),
+        'drinking': any(d['class'] in ['bottle', 'cup'] for d in detections),
         'raw': detections
     })
 
